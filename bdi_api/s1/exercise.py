@@ -137,11 +137,12 @@ def prepare_data() -> str:
     os.makedirs(prepared_directory, exist_ok=True)
 
     # Clean existing files
-    for file in os.listdir(prepared_directory):  
+    for file in os.listdir(prepared_directory):
         file_path = os.path.join(prepared_directory, file)
         if os.path.isfile(file_path):
             os.remove(file_path)
 
+    # The code reads JSON files from the raw data directory and processes them into Dataframes
     try:
         aircraft_data = []
         for file in os.listdir(raw_data_dir):
@@ -149,38 +150,47 @@ def prepare_data() -> str:
                 file_path = os.path.join(raw_data_dir, file)
                 with open(file_path, 'r') as f:
                     data = json.load(f)
-                    if "aircraft" in data:  
+                    if "aircraft" in data:
                         df = pd.DataFrame(data['aircraft'])
-                 # Add timestamp directly to DataFrame
-                        df['timestamp'] = data['now']  
+                        # Add timestamp directly to DataFrame
+                        df['timestamp'] = data['now']
                         aircraft_data.append(df)
         
-        # Concatenate all the data
+        if not aircraft_data:
+            return "No aircraft data found."
+
+        # All DataFrames are concatenated into a single Dataframe
         processed_data = pd.concat(aircraft_data, ignore_index=True)
-        
+
         # Select required columns
-        processed_data = processed_data[['hex', 'r', 'type', 't', 'lat', 'lon', 'alt_baro', 'gs', 'emergency','timestamp']]
-        
+        processed_data = processed_data[['hex', 'r', 'type', 't', 'lat', 'lon', 'alt_baro', 'gs', 'emergency', 'timestamp']]
+
         # Rename columns
         processed_data = processed_data.rename(columns={
-            'hex': 'icao', 
-            'r': 'registration', 
-            't': 'type', 
+            'hex': 'icao',
+            'r': 'registration',
+            't': 'type',
             'alt_baro': 'altitude_baro',
             'gs': 'ground_speed',
             'emergency': 'had_emergency'
         })
+
         # Drop rows with NaN values in 'icao', 'registration', and 'type'
         processed_data = processed_data.dropna(subset=['icao', 'registration', 'type'])
+
         # Process emergency flags
-        emergency = ['general', 'lifeguard', 'minfuel', 'nordo', 'unlawful', 'downed', 'reserved']
-        processed_data['had_emergency'] = processed_data['had_emergency'].apply(lambda x: x in emergency)
-        
+        emergency_flags = {'general', 'lifeguard', 'minfuel', 'nordo', 'unlawful', 'downed', 'reserved'}
+        processed_data['had_emergency'] = processed_data['had_emergency'].apply(lambda x: x in emergency_flags)
+
+        # Remove rows with any NaN values
+        processed_data = processed_data.dropna()
+
         # Save as CSV
-        processed_data.to_csv(os.path.join(prepared_directory, 'prepared_data.csv'), index=False)
+        output_file = os.path.join(prepared_directory, 'prepared_data.csv')
+        processed_data.to_csv(output_file, index=False)
 
         print(processed_data)
-        return f"Data prepared and saved to {prepared_directory}"
+        return f"Data prepared and saved to {output_file}"
 
     except Exception as e:
         return f"An error has occurred during data preparation: {str(e)}"
@@ -248,30 +258,48 @@ def get_aircraft_statistics(icao: str) -> dict:
     * had_emergency
     """
     # TODO Gather and return the correct statistics for the requested aircraft
-    prepared_directory = os.path.join(settings.prepared_dir, "day=20231101", "prepared_data.csv")
-    if not os.path.exists(prepared_directory):
+    data_file = os.path.join(settings.prepared_dir, "day=20231101", "prepared_data.csv")
+    
+    # Check if the file exists
+    if not os.path.exists(data_file):
         return {}
 
-    df = pd.read_csv(prepared_directory)
-    df = df[df['icao'] == icao]
+    try:
+        # Read the CSV file into a DataFrame
+        df = pd.read_csv(data_file)
+        
+        # Filter the DataFrame by 'icao'
+        df = df[df['icao'] == icao]
 
-    if df.empty:
-        return {}
+        # Check if the filtered DataFrame is empty
+        if df.empty:
+            return {}
 
-    # Convert numpy types to Python native types
-    # Convert numpy.bool_ to Python bool
-    max_altitude_baro = float(df['altitude_baro'].max()) if not pd.isna(df['altitude_baro'].max()) else None
-    max_ground_speed = float(df['ground_speed'].max()) if not pd.isna(df['ground_speed'].max()) else None
-    had_emergency = bool(df['had_emergency'].any())  
+        # Remove rows with NaN values in relevant columns
+        df = df.dropna(subset=['altitude_baro', 'ground_speed', 'had_emergency'])
 
-    print({
-        "max_altitude_baro": max_altitude_baro,
-        "max_ground_speed": max_ground_speed,
-        "had_emergency": had_emergency
-    })
-    return {
-        "max_altitude_baro": max_altitude_baro,
-        "max_ground_speed": max_ground_speed,
-        "had_emergency": had_emergency
-    }
-    return {"max_altitude_baro": 300000, "max_ground_speed": 493, "had_emergency": False}
+        # Calculate statistics
+        max_altitude_baro = df['altitude_baro'].max()
+        max_ground_speed = df['ground_speed'].max()
+        had_emergency = df['had_emergency'].any()
+
+        # Convert numpy types to Python native types
+        max_altitude_baro = float(max_altitude_baro) if not pd.isna(max_altitude_baro) else None
+        max_ground_speed = float(max_ground_speed) if not pd.isna(max_ground_speed) else None
+        had_emergency = bool(had_emergency)  # Convert numpy.bool_ to Python bool
+
+        # Return the results
+        return {
+            "max_altitude_baro": max_altitude_baro,
+            "max_ground_speed": max_ground_speed,
+            "had_emergency": had_emergency
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+# Example usage
+result = get_aircraft_statistics("some_icao_code")
+print(result)
+
+# This line should be removed or commented out as it is outside of any function or class
+# return {"max_altitude_baro": 300000, "max_ground_speed": 493, "had_emergency": False}
