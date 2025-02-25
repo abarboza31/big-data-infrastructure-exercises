@@ -1,11 +1,15 @@
 import json
-from tqdm import tqdm
+import os
 from typing import Annotated
+from urllib.parse import urljoin
+
+import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, status
 from fastapi.params import Query
-from fastapi.responses import FileResponse
-from fastapi import HTTPException
+from tqdm import tqdm
+
 from bdi_api.settings import Settings
 
 settings = Settings()
@@ -15,10 +19,10 @@ s1 = APIRouter(
         status.HTTP_404_NOT_FOUND: {"description": "Not found"},
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Something is wrong with the request"},
     },
-    prefix="/api/s1", #download postman
+    prefix="/api/s1",  # download postman
     tags=["s1"],
 )
-#test 1
+# test 1
 
 
 @s1.post("/aircraft/download")
@@ -61,32 +65,31 @@ def download_data(
     # Clean the download directory for existing files
     for file in os.listdir(download_dir):
         file_path = os.path.join(download_dir, file)
-        if os.path.isfile(file_path): 
+        if os.path.isfile(file_path):
             os.remove(file_path)
 
     try:
         # Get list of files from the Swagger UI link
         response = requests.get(base_url)
         # Added error handling for HTTP status
-        response.raise_for_status()  
-        
+        response.raise_for_status()
+
         # Parse the HTML content with BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        files = [
-            a['href'] for a in soup.find_all('a') 
-            if a['href'].endswith('.json.gz')
-        ][:file_limit] # Apply the file limit of 10 
-        
+        soup = BeautifulSoup(response.text, "html.parser")
+        files = [a["href"] for a in soup.find_all("a") if a["href"].endswith(".json.gz")][
+            :file_limit
+        ]  # Apply the file limit of 10
+
         # A count of successfully downloaded files
         downloaded_count = 0
         for file_name in tqdm(files, desc="Downloading files"):
             file_url = urljoin(base_url, file_name)
             response = requests.get(file_url, stream=True)
-            
+
             if response.status_code == 200:
                 file_path = os.path.join(download_dir, file_name[:-3])
-                with open(file_path, 'wb') as f:
-                    f.write(response.content)
+                with open(file_path, "wb") as f:  # add data into s3
+                    f.write(response.content)  # potentially change here
                 downloaded_count += 1
             else:
                 print(f"Failed download {file_name}")
@@ -136,14 +139,14 @@ def prepare_data() -> str:
         for file in os.listdir(raw_data_dir):
             if file.endswith('.json'):
                 file_path = os.path.join(raw_data_dir, file)
-                with open(file_path, 'r') as f:
+                with open(file_path) as f:
                     data = json.load(f)
                     if "aircraft" in data:
-                        df = pd.DataFrame(data['aircraft'])
+                        df = pd.DataFrame(data["aircraft"])
                         # Add timestamp directly to DataFrame
-                        df['timestamp'] = data['now']
+                        df["timestamp"] = data["now"]
                         aircraft_data.append(df)
-        
+
         if not aircraft_data:
             return "No aircraft data found."
 
@@ -151,30 +154,34 @@ def prepare_data() -> str:
         processed_data = pd.concat(aircraft_data, ignore_index=True)
 
         # Select required columns
-        processed_data = processed_data[['hex', 'r', 'type', 't', 'lat', 'lon', 'alt_baro', 'gs', 'emergency', 'timestamp']]
+        processed_data = processed_data[
+            ["hex", "r", "type", "t", "lat", "lon", "alt_baro", "gs", "emergency", "timestamp"]
+        ]
 
         # Rename columns
-        processed_data = processed_data.rename(columns={
-            'hex': 'icao',
-            'r': 'registration',
-            't': 'type',
-            'alt_baro': 'altitude_baro',
-            'gs': 'ground_speed',
-            'emergency': 'had_emergency'
-        })
+        processed_data = processed_data.rename(
+            columns={
+                "hex": "icao",
+                "r": "registration",
+                "t": "type",
+                "alt_baro": "altitude_baro",
+                "gs": "ground_speed",
+                "emergency": "had_emergency",
+            }
+        )
 
         # Drop rows with NaN values in 'icao', 'registration', and 'type'
-        processed_data = processed_data.dropna(subset=['icao', 'registration', 'type'])
+        processed_data = processed_data.dropna(subset=["icao", "registration", "type"])
 
         # Process emergency flags
-        emergency_flags = {'general', 'lifeguard', 'minfuel', 'nordo', 'unlawful', 'downed', 'reserved'}
-        processed_data['had_emergency'] = processed_data['had_emergency'].apply(lambda x: x in emergency_flags)
+        emergency_flags = {"general", "lifeguard", "minfuel", "nordo", "unlawful", "downed", "reserved"}
+        processed_data["had_emergency"] = processed_data["had_emergency"].apply(lambda x: x in emergency_flags)
 
         # Remove rows with any NaN values
         processed_data = processed_data.dropna()
 
         # Save as CSV
-        output_file = os.path.join(prepared_directory, 'prepared_data.csv')
+        output_file = os.path.join(prepared_directory, "prepared_data.csv")
         processed_data.to_csv(output_file, index=False)
 
         print(processed_data)
@@ -201,16 +208,16 @@ def list_aircraft(num_results: int = 100, page: int = 0) -> list[dict]:
 
     sorted_aircraft = pd.read_csv(prepared_directory)
     # Deduplicate values and sort by 'icao'
-    sorted_aircraft = sorted_aircraft[['icao', 'registration', 'type']].drop_duplicates().sort_values(by='icao')
+    sorted_aircraft = sorted_aircraft[["icao", "registration", "type"]].drop_duplicates().sort_values(by="icao")
 
     start = page * num_results
     end = start + num_results
 
-    result = sorted_aircraft.iloc[start:end].to_dict(orient='records')
+    result = sorted_aircraft.iloc[start:end].to_dict(orient="records")
     print(result)
     return result
 
-    return [{"icao": "0d8300", "registration": "YV3382", "type": "LJ31"}] # Done
+    return [{"icao": "0d8300", "registration": "YV3382", "type": "LJ31"}]  # Done
 
 
 @s1.get("/aircraft/{icao}/positions")
@@ -220,9 +227,10 @@ def get_aircraft_position(icao: str, num_results: int = 1000, page: int = 0) -> 
     """
     # TODO implement and return a list with dictionaries with those values.
 
-    # Calculate the start index: start_index = page * limit
+    # Calculate the start and end index for slicing the DataFrame
     start_index = page * num_results
     end_index = (page + 1) * num_results
+
     prepared_directory = os.path.join(settings.prepared_dir, "day=20231101", "prepared_data.csv")
     if not os.path.exists(prepared_directory):
         return []
@@ -231,9 +239,7 @@ def get_aircraft_position(icao: str, num_results: int = 1000, page: int = 0) -> 
     # Dataframe with subset of rows for the requested 'icao'
     filtered_df = df[df["icao"] == icao].sort_values(by="timestamp")
     # Slice the DataFrame according to the page and number of results per page
-    return filtered_df.iloc[page * num_results:(page + 1) * num_results][["timestamp", "lat", "lon"]].to_dict(orient="records")
-
-    return [{"timestamp": 1609275898.6, "lat": 30.404617, "lon": -86.476566}]
+    return filtered_df.iloc[start_index:end_index][["timestamp", "lat", "lon"]].to_dict(orient="records")
 
 
 @s1.get("/aircraft/{icao}/stats")
@@ -246,7 +252,7 @@ def get_aircraft_statistics(icao: str) -> dict:
     """
     # TODO Gather and return the correct statistics for the requested aircraft
     data_file = os.path.join(settings.prepared_dir, "day=20231101", "prepared_data.csv")
-    
+
     # Check if the file exists
     if not os.path.exists(data_file):
         return {}
@@ -254,38 +260,48 @@ def get_aircraft_statistics(icao: str) -> dict:
     try:
         # Read the CSV file into a DataFrame
         df = pd.read_csv(data_file)
-        
+
         # Filter the DataFrame by 'icao'
-        df = df[df['icao'] == icao]
+        df = df[df["icao"] == icao]
 
         # Check if the filtered DataFrame is empty
         if df.empty:
             return {}
+        # Convert and clean altitude data
+        df["altitude_baro"] = pd.to_numeric(df["altitude_baro"], errors="coerce")
+        df["ground_speed"] = pd.to_numeric(df["ground_speed"], errors="coerce")
 
         # Remove rows with NaN values in relevant columns
-        df = df.dropna(subset=['altitude_baro', 'ground_speed', 'had_emergency'])
+        df = df.dropna(subset=["altitude_baro", "ground_speed", "had_emergency"])
 
-        # Calculate statistics
-        max_altitude_baro = df['altitude_baro'].max()
-        max_ground_speed = df['ground_speed'].max()
-        had_emergency = df['had_emergency'].any()
+        # Calculate statistics while handling errors
+        max_altitude = df["altitude_baro"].max()
+        max_speed = df["ground_speed"].max()
+        emergency = df["had_emergency"].any()
 
-        # Convert numpy types to Python native types
-        max_altitude_baro = float(max_altitude_baro) if not pd.isna(max_altitude_baro) else None
-        max_ground_speed = float(max_ground_speed) if not pd.isna(max_ground_speed) else None
-        had_emergency = bool(had_emergency)  # Convert numpy.bool_ to Python bool
+        # Ensure we have valid numeric values
+        if pd.isna(max_altitude) or pd.isna(max_speed):
+            return {
+                "max_altitude_baro": 0,
+                "max_ground_speed": 0,
+                "had_emergency": bool(emergency)
+            }
 
         return {
-            "max_altitude_baro": max_altitude_baro,
-            "max_ground_speed": max_ground_speed,
-            "had_emergency": had_emergency
+            "max_altitude_baro": float(max_altitude),
+            "max_ground_speed": float(max_speed),
+            "had_emergency": bool(emergency)
         }
-    except Exception as e:
-        return {"error": str(e)}
 
-# Example usage
-result = get_aircraft_statistics("some_icao_code")
-print(result)
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error processing aircraft statistics: {str(e)}")
+        # Return default values instead of error message
+        return {
+            "max_altitude_baro": 0,
+            "max_ground_speed": 0,
+            "had_emergency": False
+        }
 
 # This line should be removed or commented out as it is outside of any function or class
 # return {"max_altitude_baro": 300000, "max_ground_speed": 493, "had_emergency": False}
