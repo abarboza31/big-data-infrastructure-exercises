@@ -39,7 +39,6 @@ def download_data(
     base_url = settings.source_url + "/2023/11/01/"
     s3_bucket = settings.s3_bucket
     s3_prefix_path = "raw/day=20231101/"
-    # TODO
 
     return "OK"
 

@@ -1,13 +1,7 @@
-import os
-import requests
-import pandas as pd
-from typing import List
-from urllib.parse import urljoin
 import json
 from tqdm import tqdm
 from typing import Annotated
 from bs4 import BeautifulSoup
-
 from fastapi import APIRouter, status
 from fastapi.params import Query
 from fastapi.responses import FileResponse
@@ -70,7 +64,6 @@ def download_data(
         if os.path.isfile(file_path): 
             os.remove(file_path)
 
-
     try:
         # Get list of files from the Swagger UI link
         response = requests.get(base_url)
@@ -97,16 +90,11 @@ def download_data(
                 downloaded_count += 1
             else:
                 print(f"Failed download {file_name}")
-
-        
         return f"Downloaded {downloaded_count} files to {download_dir}"
-    
     except requests.RequestException as e:
         return f"Error accessing URL: {str(e)}"
     except Exception as e:
         return f"Error during download: {str(e)}"
-
-
     return "OK"
 
 
@@ -234,7 +222,6 @@ def get_aircraft_position(icao: str, num_results: int = 1000, page: int = 0) -> 
 
     # Calculate the start index: start_index = page * limit
     start_index = page * num_results
-    # Calculate the end index: end_index = (page + 1) * limit
     end_index = (page + 1) * num_results
     prepared_directory = os.path.join(settings.prepared_dir, "day=20231101", "prepared_data.csv")
     if not os.path.exists(prepared_directory):
@@ -288,7 +275,6 @@ def get_aircraft_statistics(icao: str) -> dict:
         max_ground_speed = float(max_ground_speed) if not pd.isna(max_ground_speed) else None
         had_emergency = bool(had_emergency)  # Convert numpy.bool_ to Python bool
 
-        # Return the results
         return {
             "max_altitude_baro": max_altitude_baro,
             "max_ground_speed": max_ground_speed,
