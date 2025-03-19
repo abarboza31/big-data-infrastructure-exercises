@@ -1,3 +1,7 @@
 from importlib.metadata import version
-
-__version__ = version(__name__)
+try:
+    __version__ = version('bdi_api')  # Use the package name from pyproject.toml (now "bdi_api")
+except Exception:
+    __version__ = "0.0.1"  # Fallback to the version in pyproject.toml if metadata isn’t found
+__name__ = "bdi_api"    
+from .app import app    # Import the FastAPI app from app
