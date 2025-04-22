@@ -48,7 +48,7 @@ def download_data(
         for file_name in tqdm(files, desc="Downloading files"):
             file_url = urljoin(base_url, file_name)
             try:
-                response = requests.get(file_url, stream=True)
+                response = requests.get(file_url, stream=True, raw=True)
                 response.raise_for_status()
             except Exception as e:
                 return f"Error accessing URL: {str(e)}"
@@ -75,7 +75,7 @@ def prepare_data() -> str:
 
         # Clear old data in prepared directory
         for file in os.listdir(local_directory):
-            os.remove(os.path.join(local_directory, file))
+            os.remove(os.path.join(local_directory, file)) #this code to be re used for s8, but getting data from airflow
 
         response = s3.list_objects_v2(Bucket=s3_bucket, Prefix=s3_prefix_path)
         if 'Contents' not in response:
@@ -87,7 +87,7 @@ def prepare_data() -> str:
             prepared_file_path = os.path.join(local_directory, file_name.replace(".gz", ""))
 
             try:
-                file_response = s3.get_object(Bucket=s3_bucket, Key=s3_key)
+                file_response = s3.get_object(Bucket=s3_bucket, Key=s3_key) #airflow to be used here for s8
                 json_content = json.loads(file_response['Body'].read().decode('utf-8'))
 
                 timestamp = json_content.get("now")

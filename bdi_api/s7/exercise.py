@@ -21,10 +21,11 @@ s7 = APIRouter(prefix="/api/s7", tags=["s7"])
 #Include the read s3 bucket code and then postgres connection code
 
 # S3 bucket details
-BUCKET_NAME = "bdi-aircraft-andreabarboza"
+BUCKET_NAME = settings.s3_bucket
 OBJECT_KEY = "raw/day=20231101/000015Z.json.gz"
 
 #Connection to database
+#pool the connection
 def connect_to_db():
     conn_params = {
         "dbname": db_credentials.username,
@@ -75,7 +76,7 @@ def fetch_files_from_s3():
 
 #Fetches and parses a single gzip file from S3
 def get_file_from_s3(file_key):
-    obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
+    obj = s3_client.get_object(Bucket=settings.s3_bucket, Key=file_key)
     content = obj["Body"].read()
 
 # Try-except handles gzipped files in the event they aren't actually compressed
@@ -121,11 +122,11 @@ def save_to_db(data):
         if "lat" in record and "lon" in record:
             # Handle 'ground' value for alt_baro
             alt_baro_value = record.get("alt_baro", 0)
-            alt_baro = 0 if str(alt_baro_value).lower() == 'ground' else float(alt_baro_value)
+            alt_baro = 0. if str(alt_baro_value).lower() == 'ground' else float(alt_baro_value)
 
             # Use baro_rate as ground_speed placeholder to match the table schema
             ground_speed_value = record.get("baro_rate", 0)
-            ground_speed = 0 if str(ground_speed_value).lower() == 'ground' else float(ground_speed_value)
+            ground_speed = 0. if str(ground_speed_value).lower() == 'ground' else float(ground_speed_value)
 
             position_data.append((
                 icao,
